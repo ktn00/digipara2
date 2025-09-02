@@ -75,7 +75,14 @@
     }
 
     function addFrame() {
-      const imageData = ctx.getImageData(0, 0, drawCanvas.width, drawCanvas.height);
+      // 一時キャンバスで確実に状態を保存
+      const tempCanvas = document.createElement("canvas");
+      tempCanvas.width = drawCanvas.width;
+      tempCanvas.height = drawCanvas.height;
+      const tempCtx = tempCanvas.getContext("2d", { willReadFrequently: true });
+
+      tempCtx.drawImage(drawCanvas, 0, 0);
+      const imageData = tempCtx.getImageData(0, 0, drawCanvas.width, drawCanvas.height);
       frames.push(imageData);
       currentFrameIndex = frames.length - 1;
       updateFrameDisplay();
@@ -155,8 +162,8 @@
       const gifCtx = gifCanvas.getContext("2d", { willReadFrequently: true });
 
       for (let frame of frames) {
-        gifCtx.putImageData(frame, 0, 0);
-        encoder.addFrame(gifCtx);
+        gifCtx.putImageData(frame, 0, 0);         // ピクセル配置
+        encoder.addFrame(gifCtx);                // 描画済みCanvasを追加
       }
 
       encoder.finish();
@@ -167,3 +174,4 @@
   </script>
 </body>
 </html>
+
