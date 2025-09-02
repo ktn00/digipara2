@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>手描きアニメーション + GIF出力（jsgif）</title>
+  <style>
+    canvas { border: 1px solid #000; }
+    .toolbar {
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    button { margin-right: 5px; }
+    #previewPanel {
+      margin-top: 15px;
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+    }
+    #previewPanel canvas {
+      border: 1px solid gray;
+      cursor: pointer;
+    }
+    #outputGif {
+      margin-top: 20px;
+      max-width: 100%;
+      border: 1px solid #ddd;
+    }
+  </style>
+</head>
+<body>
+  <h1>手描きアニメーション + GIF出力（jsgif）</h1>
+
+  <canvas id="drawCanvas" width="400" height="300"></canvas>
+
+  <div class="toolbar">
+    <button onclick="addFrame()">フレーム追加</button>
+    <button onclick="prevFrame()">← 前</button>
+    <button onclick="nextFrame()">次 →</button>
+    <button onclick="play()">▶ 再生</button>
+    <button onclick="toggleEraser()">🧽 消しゴム: <span id="eraserStatus">OFF</span></button>
+    <label>
+      太さ:
+      <input type="range" id="brushSize" min="1" max="30" value="2" oninput="changeBrushSize(this.value)">
+      <span id="brushSizeValue">2</span>px
+    </label>
+    <!-- GIF生成ボタン -->
+    <button onclick="generateGIF()">GIF生成</button>
+    <span>フレーム: <span id="frameIndex">1</span></span>
+  </div>
+
+  <div id="previewPanel"></div>
+
+  <!-- jsgif ライブラリ読み込み -->
+  <script src="b64.js"></script>
+  <script src="LZWEncoder.js"></script>
+  <script src="NeuQuant.js"></script>
+  <script src="GIFEncoder.js"></script>
+
+  <img id="outputGif" src="" alt="生成されたGIF">
+
+  <script>
+    const canvas = document.getElementById('drawCanvas');
+    const ctx = canvas.getContext('2d');
+    let drawing = false, frames = [], currentFrame = 0;
+    let isEraser = false, penSize = 2, eraserSize = 10;
+
+    ctx.lineCap = 'round';
+    ctx.lineWidth = penSize;
+    ctx.strokeStyle = '#000';
+
+    canvas.addEventListener('mousedown', e => { drawing = true; ctx.beginPath(); ctx.moveTo(e.offsetX, e.offsetY); });
+    canvas.addEventListener('mousemove', e => { if (drawing) { ctx.lineTo(e.offsetX, e.offsetY); ctx.stroke(); }});
+    canvas.addEventListener('mouseup', () => { drawing = false; ctx.closePath(); saveCurrentFrame(); });
+    canvas.addEventListener('mouseleave', () => { drawing = false; ctx.closePath(); saveCurrentFrame(); });
+
+    function saveCurrentFrame() {
+      frames[currentFrame] = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      updatePreviewPanel();
+    }
+
+    function loadFrame(index) {
+      if (frames[index]) ctx.putImageData(frames[index], 0, 0);
+      else ctx.clearRect(0, 0, canvas.width, canvas.height);
+      document.getElementById('frameIndex').textContent = index + 1;
+      updatePreviewPanel();
+    }
+
+    function addFrame() { saveCurrentFrame(); currentFrame = frames.length; frames.push(null); loadFrame(currentFrame); }
+    function nextFrame() { saveCurrentFrame(); if (currentFrame < frames.length - 1) currentFrame++; loadFrame(currentFrame); }
+    function prevFrame() { saveCurrentFrame(); if (currentFrame > 0) currentFrame--; loadFrame(currentFrame); }
+
+    function play() {
+      let i = 0, saved = currentFrame;
+      const interval = setInterval(() => {
+        if (i >= frames.length) { clearInterval(interval); loadFrame(saved); return; }
+        frames[i] ? ctx.putImageData(frames[i], 0, 0) : ctx.clearRect(0, 0, canvas.width, canvas.height);
+        document.getElementById('frameIndex').textContent = i + 1;
+        i++;
+      }, 200);
+    }
+
+    function updatePreviewPanel() {
+      const panel = document.getElementById('previewPanel');
+      panel.innerHTML = '';
+      frames.forEach((frame, idx) => {
+        const c = document.createElement('canvas');
+        c.width = 80; c.height = 60;
+        c.style.border = idx === currentFrame ? '2px solid red' : '1px solid gray';
+        c.style.cursor = 'pointer';
+        const pctx = c.getContext('2d');
+        if (frame) {
+          const tmp = document.createElement('canvas');
+          tmp.width = canvas.width; tmp.height = canvas.height;
+          tmp.getContext('2d').putImageData(frame, 0, 0);
+          pctx.drawImage(tmp, 0, 0, c.width, c.height);
+        }
+        c.onclick = () => { saveCurrentFrame(); currentFrame = idx; loadFrame(currentFrame); };
+        panel.appendChild(c);
+      });
+    }
+
+    function toggleEraser() {
+      isEraser = !isEraser;
+      ctx.strokeStyle = isEraser ? '#fff' : '#000';
+      ctx.lineWidth = isEraser ? eraserSize : penSize;
+      document.getElementById('eraserStatus').textContent = isEraser ? 'ON' : 'OFF';
+      document.getElementById('brushSize').value = isEraser ? eraserSize : penSize;
+      document.getElementById('brushSizeValue').textContent = isEraser ? eraserSize : penSize;
+    }
+
+    function changeBrushSize(size) {
+      const n = parseInt(size);
+      if (isEraser) eraserSize = n; else penSize = n;
+      ctx.lineWidth = n;
+      document.getElementById('brushSizeValue').textContent = size;
+    }
+
+    function generateGIF() {
+      if (frames.length === 0) return alert('フレームがありません');
+      const encoder = new GIFEncoder();
+      encoder.setRepeat(0);
+      encoder.setDelay(200);
+      encoder.start();
+
+      frames.forEach(frame => {
+        const tmp = document.createElement('canvas');
+        tmp.width = canvas.width; tmp.height = canvas.height;
+        tmp.getContext('2d').putImageData(frame || new ImageData(canvas.width, canvas.height), 0, 0);
+        encoder.addFrame(tmp.getContext('2d'));
+      });
+
+      encoder.finish();
+      const binaryGif = encoder.stream().getData();
+      const dataUrl = 'data:image/gif;base64,' + encode64(binaryGif);
+
+      document.getElementById('outputGif').src = dataUrl;
+    }
+
+    frames.push(null);
+    updatePreviewPanel();
+  </script>
+</body>
+</html>
