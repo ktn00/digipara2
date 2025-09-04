@@ -14,7 +14,7 @@
       font-family: sans-serif;
     }
     h1 { text-align: center; }
-    canvas { border: 1px solid #000; }
+    canvas { border: 1px solid #000; touch-action: none; } /* ← ピンチスクロール無効化 */
     .toolbar {
       margin-top: 10px;
       display: flex;
@@ -101,29 +101,55 @@
     ctx.lineWidth = penSize;
     ctx.strokeStyle = '#000';
 
+    // --- 座標変換（タッチ対応用） ---
+    function getCanvasPos(e) {
+      if (e.touches) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+          x: e.touches[0].clientX - rect.left,
+          y: e.touches[0].clientY - rect.top
+        };
+      } else {
+        return { x: e.offsetX, y: e.offsetY };
+      }
+    }
+
     function startDrawing(e) {
+      e.preventDefault();
+      const pos = getCanvasPos(e);
       drawing = true;
       ctx.beginPath();
-      ctx.moveTo(e.offsetX, e.offsetY);
+      ctx.moveTo(pos.x, pos.y);
       saveUndoState();
     }
 
     function draw(e) {
       if (!drawing) return;
-      ctx.lineTo(e.offsetX, e.offsetY);
+      e.preventDefault();
+      const pos = getCanvasPos(e);
+      ctx.lineTo(pos.x, pos.y);
       ctx.stroke();
     }
 
-    function stopDrawing() {
+    function stopDrawing(e) {
+      if (!drawing) return;
+      e.preventDefault();
       drawing = false;
       ctx.closePath();
       saveCurrentFrame();
     }
 
+    // --- マウス ---
     canvas.addEventListener('mousedown', startDrawing);
     canvas.addEventListener('mousemove', draw);
     canvas.addEventListener('mouseup', stopDrawing);
     canvas.addEventListener('mouseleave', stopDrawing);
+
+    // --- タッチ ---
+    canvas.addEventListener('touchstart', startDrawing, { passive: false });
+    canvas.addEventListener('touchmove', draw, { passive: false });
+    canvas.addEventListener('touchend', stopDrawing, { passive: false });
+    canvas.addEventListener('touchcancel', stopDrawing, { passive: false });
 
     function saveUndoState() {
       undoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
